@@ -38,6 +38,10 @@ def _build_pkk_data(data):
             typepkk=value_from_xsd('dAllowedUse_v02.xsd', feature_attr.get('util_code', None)),
             typepkk_bydoc=feature_attr.get('util_by_doc', None),
             adresspkk=feature_attr.get('address', None),
+            squarepkk=feature_attr.get('area_value'),
+            costpkk=feature_attr.get('cad_cost'),
+            datepkk=feature_attr.get('cc_date_entering'),
+            statuspkk=value_from_xsd('dStates_v01.xsd', feature_attr.get('statecd', None)),
             box=[
                     feature_extent.get('xmin', None), feature_extent.get('ymin', None),
                     feature_extent.get('xmax', None), feature_extent.get('ymax', None)
