@@ -86,8 +86,7 @@ def pkk_tween_factory(handler, registry):
             srs_to = SRS.filter_by(id=4326).one()
             transformer = Transformer(srs_from.wkt, srs_to.wkt)
             feat_geometry = transformer.transform(feat_geometry)
-            feat_center = feat_geometry.shape.centroid
-            result = _make_request_to_aiorosreestr('%f %f' % (feat_center.y, feat_center.x))
+            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry.to_geojson()))
             response_json = response.json
             response_json['fields']['rosreestr'] = _build_pkk_data(result)
             response.json_body = response_json
