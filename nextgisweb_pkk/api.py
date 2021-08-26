@@ -30,7 +30,7 @@ def _build_pkk_data(data):
     for feature in data:
         feature = feature['feature']
         feature_attr = feature['attrs']
-        feature_extent = feature.get('extent', dict())
+        feature_extent = feature.get('extent', None) or dict()
         result.append(dict(
             typeobj=feature.get('type'),
             numbpkk=feature_attr.get('cn'),
@@ -47,6 +47,7 @@ def _build_pkk_data(data):
                     feature_extent.get('xmax', None), feature_extent.get('ymax', None)
             ]
         ))
+    result.sort(key=lambda x: [int(i) if i.isdigit() else i for i in x['numbpkk'].split(':')])
     return result
 
 
@@ -71,9 +72,9 @@ def pkk_tween_factory(handler, registry):
         # Only request under /api/ and /feature/{id} are handled
         is_api = '/api/' in request.path_info
         is_feature = '/feature/' in request.path_info and request.path_info.rsplit('/', 1)[-1].isalnum()
+        include_pkk = request.GET.get('pkk', 'no') in ('true', 'yes', '1')
 
-
-        if not is_api or not is_feature or request.method != 'GET':
+        if not is_api or not is_feature or request.method != 'GET' or not include_pkk:
             # Run default request handler
             return handler(request)
 
