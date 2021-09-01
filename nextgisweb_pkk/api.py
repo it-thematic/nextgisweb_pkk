@@ -9,6 +9,8 @@ from nextgisweb.lib.geometry import Geometry, Transformer
 from nextgisweb.resource import resource_factory, Resource
 from nextgisweb.spatial_ref_sys import SRS
 from nextgisweb.tmsclient.session_keeper import get_session
+from nextgisweb.webmap.model import WebMap, WebMapScope
+from nextgisweb.webmap.util import get_recursive_values
 from pyramid.response import Response
 
 from nextgisweb_pkk.xds import value_from_xsd
@@ -65,6 +67,20 @@ def _make_request_to_aiorosreestr(search):
     return []
 
 
+def _add_preview_link(request):
+    """"""
+    base_map_id = request.env.webmap.options.get('base_map', None)
+    if base_map_id is None:
+        base_map = WebMap.query().first()
+    else:
+        base_map = WebMap.filter_by(id=int(base_map_id)).first()
+    if not base_map.has_permission(WebMapScope.display, request.user):
+        return None
+    layers_ids = get_recursive_values(base_map)
+    layers_ids_str = ','.join(str(_id) for _id in layers_ids)
+    return request.route_url('render.image') + '?resource=' + layers_ids_str
+
+
 def pkk_tween_factory(handler, registry):
     """ Tween adds integration with aiorosreestr """
 
@@ -82,14 +98,15 @@ def pkk_tween_factory(handler, registry):
             if 400 <= response.status_code:
                 return
             feat = response.json
-            feat_geometry = Geometry.from_wkt(feat['geom'])
+            feat_geometry_3857 = Geometry.from_wkt(feat['geom'])
             srs_from = SRS.filter_by(id=3857).one()
             srs_to = SRS.filter_by(id=4326).one()
             transformer = Transformer(srs_from.wkt, srs_to.wkt)
-            feat_geometry = transformer.transform(feat_geometry)
-            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry.to_geojson()))
+            feat_geometry_4326 = transformer.transform(feat_geometry_3857)
+            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry_4326.to_geojson()))
             response_json = response.json
             response_json['fields']['rosreestr'] = _build_pkk_data(result)
+            response_json['preview'] = _add_preview_link(request) + '&extent=' + ','.join(str(_item) for _item in feat_geometry_3857.bounds)
             response.json_body = response_json
             env.pkk.logger.info(response_json['fields']['rosreestr'])
 
