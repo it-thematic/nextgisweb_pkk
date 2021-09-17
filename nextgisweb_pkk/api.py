@@ -64,6 +64,7 @@ def _make_request_to_aiorosreestr(search):
                          )
     if result.status_code == 200:
         return result.json()
+    env.pkk.logger.error(result.text)
     return []
 
 
@@ -125,7 +126,21 @@ def pkk_search(request):
     if not like:
         return Response(json.dumps(dict(), cls=geojson.Encoder))
 
-    result = _make_request_to_aiorosreestr(like)
+    try:
+        _search = json.loads(like)
+    except json.JSONDecodeError:
+        _search = like
+    else:
+        _crs = _search.get('crs', dict())
+        _crs_prop = _crs.get('properties', dict())
+        _crs_srs = _crs_prop.get('name', 'EPGS:3857')
+        _crs_code = _crs_srs.split(':')[-1] or 3857
+        geom_srs = Geometry.from_geojson(_search, srid=int(_crs_code))
+        srs_from = SRS.filter_by(id=geom_srs.srid).one()
+        srs_to = SRS.filter_by(id=4326).one()
+        transformer = Transformer(srs_from.wkt, srs_to.wkt)
+        _search = transformer.transform(geom_srs).to_geojson()
+    result = _make_request_to_aiorosreestr(json.dumps(_search))
     result = _build_pkk_data(result)
     return Response(json.dumps(result, cls=geojson.Encoder), headers=headers)
 
