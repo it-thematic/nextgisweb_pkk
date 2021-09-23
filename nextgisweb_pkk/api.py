@@ -139,8 +139,8 @@ def pkk_search(request):
         srs_from = SRS.filter_by(id=geom_srs.srid).one()
         srs_to = SRS.filter_by(id=4326).one()
         transformer = Transformer(srs_from.wkt, srs_to.wkt)
-        _search = transformer.transform(geom_srs).to_geojson()
-    result = _make_request_to_aiorosreestr(json.dumps(_search))
+        _search = json.dumps(transformer.transform(geom_srs).to_geojson())
+    result = _make_request_to_aiorosreestr(_search)
     result = _build_pkk_data(result)
     return Response(json.dumps(result, cls=geojson.Encoder), headers=headers)
 
