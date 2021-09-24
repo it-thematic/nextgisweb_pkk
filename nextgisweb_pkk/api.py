@@ -118,30 +118,51 @@ def pkk_tween_factory(handler, registry):
     return pkk_tween
 
 
-def pkk_search(request):
+def _transform_geom(obj):
+    _crs = obj.get('crs', dict())
+    _crs_prop = _crs.get('properties', dict())
+    _crs_srs = _crs_prop.get('name', '')
+    _crs_code = _crs_srs.split(':')[-1] or 4326
+    geom_srs = Geometry.from_geojson(obj, srid=int(_crs_code))
+    srs_from = SRS.filter_by(id=geom_srs.srid).one()
+    srs_to = SRS.filter_by(id=4326).one()
+    transformer = Transformer(srs_from.wkt, srs_to.wkt)
+    return transformer.transform(geom_srs).to_geojson()
+
+
+def _pkk_search(like):
+    if not like:
+        return dict()
+
+    if isinstance(like, dict):
+        _search = json.dumps(_transform_geom(like))
+    else:
+        try:
+            _search = json.loads(like)
+        except json.JSONDecodeError:
+            _search = like
+        else:
+            _search = json.dumps(_transform_geom(_search))
+    result = _make_request_to_aiorosreestr(_search)
+    return _build_pkk_data(result)
+
+
+def pkk_gsearch(request):
     headers = dict()
-    headers[str('Content-Type')] = str('application/json')
+    headers['Content-Type'] = 'application/json'
 
     like = request.params.get('like', '')
-    if not like:
-        return Response(json.dumps(dict(), cls=geojson.Encoder))
+    result = _pkk_search(like)
+    return Response(json.dumps(result, cls=geojson.Encoder), headers=headers)
 
-    try:
-        _search = json.loads(like)
-    except json.JSONDecodeError:
-        _search = like
-    else:
-        _crs = _search.get('crs', dict())
-        _crs_prop = _crs.get('properties', dict())
-        _crs_srs = _crs_prop.get('name', 'EPGS:3857')
-        _crs_code = _crs_srs.split(':')[-1] or 3857
-        geom_srs = Geometry.from_geojson(_search, srid=int(_crs_code))
-        srs_from = SRS.filter_by(id=geom_srs.srid).one()
-        srs_to = SRS.filter_by(id=4326).one()
-        transformer = Transformer(srs_from.wkt, srs_to.wkt)
-        _search = json.dumps(transformer.transform(geom_srs).to_geojson())
-    result = _make_request_to_aiorosreestr(_search)
-    result = _build_pkk_data(result)
+
+def pkk_psearch(request):
+    headers = dict()
+    headers['Content-Type'] = 'application/json'
+
+    body = request.json_body
+    like = body.get('like')
+    result = _pkk_search(like)
     return Response(json.dumps(result, cls=geojson.Encoder), headers=headers)
 
 
@@ -152,4 +173,5 @@ def setup_pyramid(comp, config):
 
     config.add_route(
         'pkk.search', '/api/pkk/search/') \
-        .add_view(pkk_search, request_method='GET')
+        .add_view(pkk_gsearch, request_method='GET') \
+        .add_view(pkk_psearch, request_method='POST')
