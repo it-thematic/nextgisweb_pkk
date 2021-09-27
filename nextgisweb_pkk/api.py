@@ -30,38 +30,50 @@ from nextgisweb_pkk.xds import value_from_xsd
 def _build_pkk_data(data):
     result = []
     for feature in data:
-        feature = feature['feature']
-        feature_attr = feature['attrs']
-        feature_extent = feature.get('extent', None) or dict()
+        feature_attr = feature['properties']
+        feature_geometry = feature.get('geometry', None)
+        geom = None
+        if feature_geometry:
+            geom_4326 = Geometry.from_geojson(feature_geometry, srid=4326)
+            srs_3857 = SRS.filter_by(id=3857).one()
+            srs_4326 = SRS.filter_by(id=4326).one()
+            transformer = Transformer(srs_4326.wkt, srs_3857.wkt)
+            geom = transformer.transform(geom_4326)
+
         result.append(dict(
-            typeobj=feature.get('type'),
+            typeobj=feature_attr.get('type'),
             numbpkk=feature_attr.get('cn'),
-            categorypkk=value_from_xsd('dCategories_v01.xsd', feature_attr.get('category_type', None)),
-            typepkk=value_from_xsd('dAllowedUse_v02.xsd', feature_attr.get('util_code', None)),
+            categorypkk=value_from_xsd('dCategories_v01.xsd', feature_attr.get('category_type', None)) or "Не определено",
+            typepkk=value_from_xsd('dUtilizations_v01.xsd', feature_attr.get('util_code', None)) or "Не определено",
             typepkk_bydoc=feature_attr.get('util_by_doc', None),
             adresspkk=feature_attr.get('address', None),
             squarepkk=feature_attr.get('area_value'),
             costpkk=feature_attr.get('cad_cost'),
             datepkk=feature_attr.get('cc_date_entering'),
             statuspkk=value_from_xsd('dStates_v01.xsd', feature_attr.get('statecd', None)),
-            box=[
-                    feature_extent.get('xmin', None), feature_extent.get('ymin', None),
-                    feature_extent.get('xmax', None), feature_extent.get('ymax', None)
-            ]
+            box=[None, None, None, None],
+            geometry=None
         ))
+        if geom:
+            result[-1]['geometry'] = geom.wkt
+            result[-1]['box'] = list(geom.bounds)
+
     result.sort(key=lambda x: [int(i) if i.isdigit() else i for i in x['numbpkk'].split(':')])
     return result
 
 
-def _make_request_to_aiorosreestr(search):
+def _make_request_to_aiorosreestr(search, **kwargs):
     host = env.pkk.options['host']
     session = get_session('pkk', host, None, None)
     if host.endswith('/'):
         host = host[:-1]
 
-    result = session.get(url=host + '/features/',
-                         params=dict(search=search)
-                         )
+    try:
+        result = session.get(url=host + '/features/',
+                             params=dict(search=search, **kwargs)
+                             )
+    except Exception as e:
+        return []
     if result.status_code == 200:
         return result.json()
     env.pkk.logger.error(result.text)
@@ -104,7 +116,7 @@ def pkk_tween_factory(handler, registry):
             srs_to = SRS.filter_by(id=4326).one()
             transformer = Transformer(srs_from.wkt, srs_to.wkt)
             feat_geometry_4326 = transformer.transform(feat_geometry_3857)
-            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry_4326.to_geojson()))
+            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry_4326.to_geojson()), center_only=True)
             response_json = response.json
             response_json['fields']['rosreestr'] = _build_pkk_data(result)
             response_json['preview'] = _add_preview_link(request) + '&extent=' + ','.join(str(_item) for _item in feat_geometry_3857.bounds)
@@ -143,7 +155,7 @@ def _pkk_search(like):
             _search = like
         else:
             _search = json.dumps(_transform_geom(_search))
-    result = _make_request_to_aiorosreestr(_search)
+    result = _make_request_to_aiorosreestr(_search, center_only=False)
     return _build_pkk_data(result)
 
 
