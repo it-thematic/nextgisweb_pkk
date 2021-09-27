@@ -6,7 +6,6 @@ import json
 from nextgisweb import geojson
 from nextgisweb.env import env
 from nextgisweb.lib.geometry import Geometry, Transformer
-from nextgisweb.resource import resource_factory, Resource
 from nextgisweb.spatial_ref_sys import SRS
 from nextgisweb.tmsclient.session_keeper import get_session
 from nextgisweb.webmap.model import WebMap, WebMapScope
@@ -29,34 +28,37 @@ from nextgisweb_pkk.xds import value_from_xsd
 
 def _build_pkk_data(data):
     result = []
-    for feature in data:
-        feature_attr = feature['properties']
-        feature_geometry = feature.get('geometry', None)
-        geom = None
-        if feature_geometry:
-            geom_4326 = Geometry.from_geojson(feature_geometry, srid=4326)
-            srs_3857 = SRS.filter_by(id=3857).one()
-            srs_4326 = SRS.filter_by(id=4326).one()
-            transformer = Transformer(srs_4326.wkt, srs_3857.wkt)
-            geom = transformer.transform(geom_4326)
+    for feature_coll in data:
+        feature_type = feature_coll['type']
+        features = feature_coll['features'] if feature_type == "FeatureCollection" else [feature_coll]
+        for feature in features:
+            feature_attr = feature['properties']
+            feature_geometry = feature.get('geometry', None)
+            geom = None
+            if feature_geometry:
+                geom_4326 = Geometry.from_geojson(feature_geometry, srid=4326)
+                srs_3857 = SRS.filter_by(id=3857).one()
+                srs_4326 = SRS.filter_by(id=4326).one()
+                transformer = Transformer(srs_4326.wkt, srs_3857.wkt)
+                geom = transformer.transform(geom_4326)
 
-        result.append(dict(
-            typeobj=feature_attr.get('type'),
-            numbpkk=feature_attr.get('cn'),
-            categorypkk=value_from_xsd('dCategories_v01.xsd', feature_attr.get('category_type', None)) or "Не определено",
-            typepkk=value_from_xsd('dUtilizations_v01.xsd', feature_attr.get('util_code', None)) or "Не определено",
-            typepkk_bydoc=feature_attr.get('util_by_doc', None),
-            adresspkk=feature_attr.get('address', None),
-            squarepkk=feature_attr.get('area_value'),
-            costpkk=feature_attr.get('cad_cost'),
-            datepkk=feature_attr.get('cc_date_entering'),
-            statuspkk=value_from_xsd('dStates_v01.xsd', feature_attr.get('statecd', None)),
-            box=[None, None, None, None],
-            geometry=None
-        ))
-        if geom:
-            result[-1]['geometry'] = geom.wkt
-            result[-1]['box'] = list(geom.bounds)
+            result.append(dict(
+                typeobj=feature_attr.get('type'),
+                numbpkk=feature_attr.get('cn'),
+                categorypkk=value_from_xsd('dCategories_v01.xsd', feature_attr.get('category_type', None)) or "Не определено",
+                typepkk=value_from_xsd('dUtilizations_v01.xsd', feature_attr.get('util_code', None)) or "Не определено",
+                typepkk_bydoc=feature_attr.get('util_by_doc', None),
+                adresspkk=feature_attr.get('address', None),
+                squarepkk=feature_attr.get('area_value'),
+                costpkk=feature_attr.get('cad_cost'),
+                datepkk=feature_attr.get('cc_date_entering'),
+                statuspkk=value_from_xsd('dStates_v01.xsd', feature_attr.get('statecd', None)),
+                box=[None, None, None, None],
+                geometry=None
+            ))
+            if geom:
+                result[-1]['geometry'] = geom.wkt
+                result[-1]['box'] = list(geom.bounds)
 
     result.sort(key=lambda x: [int(i) if i.isdigit() else i for i in x['numbpkk'].split(':')])
     return result
@@ -116,7 +118,7 @@ def pkk_tween_factory(handler, registry):
             srs_to = SRS.filter_by(id=4326).one()
             transformer = Transformer(srs_from.wkt, srs_to.wkt)
             feat_geometry_4326 = transformer.transform(feat_geometry_3857)
-            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry_4326.to_geojson()), center_only=True)
+            result = _make_request_to_aiorosreestr(json.dumps(feat_geometry_4326.to_geojson()))
             response_json = response.json
             response_json['fields']['rosreestr'] = _build_pkk_data(result)
             response_json['preview'] = _add_preview_link(request) + '&extent=' + ','.join(str(_item) for _item in feat_geometry_3857.bounds)
