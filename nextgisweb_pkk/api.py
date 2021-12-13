@@ -86,7 +86,7 @@ def _add_preview_link(request):
     """"""
     base_map_id = request.env.webmap.options.get('base_map', None)
     if base_map_id is None:
-        base_map = WebMap.query().first()
+        base_map = WebMap.query().order_by('id').first()
     else:
         base_map = WebMap.filter_by(id=int(base_map_id)).first()
     if not base_map.has_permission(WebMapScope.display, request.user):
